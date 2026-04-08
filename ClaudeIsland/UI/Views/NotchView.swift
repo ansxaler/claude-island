@@ -421,7 +421,7 @@ struct NotchView: View {
 
         if !newPendingIds.isEmpty &&
            viewModel.status == .closed &&
-           !TerminalVisibilityDetector.isTerminalVisibleOnCurrentSpace() {
+           !TerminalVisibilityDetector.isTerminalFrontmost() {
             viewModel.notchOpen(reason: .notification)
         }
 

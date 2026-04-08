@@ -12,6 +12,8 @@ struct ClaudeInstancesView: View {
     @ObservedObject var sessionMonitor: ClaudeSessionMonitor
     @ObservedObject var viewModel: NotchViewModel
 
+    @State private var selectedIndex: Int = 0
+
     var body: some View {
         if sessionMonitor.instances.isEmpty {
             emptyState
@@ -68,9 +70,10 @@ struct ClaudeInstancesView: View {
     private var instancesList: some View {
         ScrollView(.vertical, showsIndicators: false) {
             LazyVStack(spacing: 2) {
-                ForEach(sortedInstances) { session in
+                ForEach(Array(sortedInstances.enumerated()), id: \.element.stableId) { index, session in
                     InstanceRow(
                         session: session,
+                        isSelected: index == clampedSelectedIndex,
                         onFocus: { focusSession(session) },
                         onChat: { openChat(session) },
                         onArchive: { archiveSession(session) },
@@ -82,7 +85,49 @@ struct ClaudeInstancesView: View {
             }
             .padding(.vertical, 4)
         }
+        .focusable()
         .scrollBounceBehavior(.basedOnSize)
+        .onKeyPress(.upArrow) {
+            selectedIndex = max(0, clampedSelectedIndex - 1)
+            return .handled
+        }
+        .onKeyPress(.downArrow) {
+            selectedIndex = min(sortedInstances.count - 1, clampedSelectedIndex + 1)
+            return .handled
+        }
+        .onKeyPress(.return) {
+            let index = clampedSelectedIndex
+            guard index < sortedInstances.count else { return .ignored }
+            let session = sortedInstances[index]
+            guard session.phase.isWaitingForApproval else { return .ignored }
+            approveAndMaybeClose(session)
+            return .handled
+        }
+        .onChange(of: sortedInstances.map(\.stableId)) { _, _ in
+            selectedIndex = 0
+        }
+    }
+
+    private var clampedSelectedIndex: Int {
+        guard !sortedInstances.isEmpty else { return 0 }
+        return min(selectedIndex, sortedInstances.count - 1)
+    }
+
+    private func approveAndMaybeClose(_ session: SessionState) {
+        approveSession(session)
+
+        // Check after a short delay if any approvals remain
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            let stillPending = sessionMonitor.instances.contains { $0.phase.isWaitingForApproval }
+            if !stillPending {
+                viewModel.notchClose()
+            } else {
+                // Move selection to next pending approval
+                if let nextIndex = sortedInstances.firstIndex(where: { $0.phase.isWaitingForApproval }) {
+                    selectedIndex = nextIndex
+                }
+            }
+        }
     }
 
     // MARK: - Actions
@@ -120,6 +165,7 @@ struct ClaudeInstancesView: View {
 
 struct InstanceRow: View {
     let session: SessionState
+    let isSelected: Bool
     let onFocus: () -> Void
     let onChat: () -> Void
     let onArchive: () -> Void
@@ -284,7 +330,7 @@ struct InstanceRow: View {
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: isWaitingForApproval)
         .background(
             RoundedRectangle(cornerRadius: 12)
-                .fill(isHovered ? Color.white.opacity(0.06) : Color.clear)
+                .fill(isSelected ? Color.white.opacity(0.1) : (isHovered ? Color.white.opacity(0.06) : Color.clear))
         )
         .onHover { isHovered = $0 }
         .task {

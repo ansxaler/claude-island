@@ -136,6 +136,13 @@ class NotchViewModel: ObservableObject {
             }
             .store(in: &cancellables)
 
+        events.globalHotkey
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] in
+                self?.handleGlobalHotkey()
+            }
+            .store(in: &cancellables)
+
         events.mouseDown
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
@@ -251,6 +258,14 @@ class NotchViewModel: ObservableObject {
                 return
             }
             contentType = .chat(chatSession)
+        }
+    }
+
+    private func handleGlobalHotkey() {
+        if status == .opened {
+            notchClose()
+        } else {
+            notchOpen(reason: .click)
         }
     }
 

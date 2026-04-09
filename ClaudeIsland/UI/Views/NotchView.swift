@@ -418,13 +418,23 @@ struct NotchView: View {
     }
 
     private func handlePendingSessionsChange(_ sessions: [SessionState]) {
-        let currentIds = Set(sessions.map { $0.stableId })
+        // Only auto-expand for actual approval requests, not waitingForInput
+        let approvalSessions = sessions.filter { $0.phase.isWaitingForApproval }
+        let currentIds = Set(approvalSessions.map { $0.stableId })
         let newPendingIds = currentIds.subtracting(previousPendingIds)
 
         if !newPendingIds.isEmpty &&
            viewModel.status == .closed &&
            !TerminalVisibilityDetector.isTerminalFrontmost() {
             viewModel.notchOpen(reason: .notification)
+        }
+
+        // Auto-close if notch was opened for notification and no approvals remain
+        if currentIds.isEmpty &&
+           !previousPendingIds.isEmpty &&
+           viewModel.status == .opened &&
+           viewModel.openReason == .notification {
+            viewModel.notchClose()
         }
 
         previousPendingIds = currentIds

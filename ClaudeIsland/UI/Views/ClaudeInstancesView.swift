@@ -13,6 +13,7 @@ struct ClaudeInstancesView: View {
     @ObservedObject var viewModel: NotchViewModel
 
     @State private var selectedIndex: Int = 0
+    @FocusState private var isListFocused: Bool
 
     var body: some View {
         if sessionMonitor.instances.isEmpty {
@@ -73,7 +74,7 @@ struct ClaudeInstancesView: View {
                 ForEach(Array(sortedInstances.enumerated()), id: \.element.stableId) { index, session in
                     InstanceRow(
                         session: session,
-                        isSelected: index == clampedSelectedIndex,
+                        isSelected: hasPendingApproval && index == clampedSelectedIndex,
                         onFocus: { focusSession(session) },
                         onChat: { openChat(session) },
                         onArchive: { archiveSession(session) },
@@ -86,6 +87,12 @@ struct ClaudeInstancesView: View {
             .padding(.vertical, 4)
         }
         .focusable()
+        .focused($isListFocused)
+        .onAppear {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                isListFocused = true
+            }
+        }
         .scrollBounceBehavior(.basedOnSize)
         .onKeyPress(.upArrow) {
             selectedIndex = max(0, clampedSelectedIndex - 1)
@@ -97,15 +104,25 @@ struct ClaudeInstancesView: View {
         }
         .onKeyPress(.return) {
             let index = clampedSelectedIndex
-            guard index < sortedInstances.count else { return .ignored }
+            guard index < sortedInstances.count else {
+                viewModel.notchClose()
+                return .handled
+            }
             let session = sortedInstances[index]
-            guard session.phase.isWaitingForApproval else { return .ignored }
-            approveAndMaybeClose(session)
+            if session.phase.isWaitingForApproval {
+                approveAndMaybeClose(session)
+            } else {
+                viewModel.notchClose()
+            }
             return .handled
         }
         .onChange(of: sortedInstances.map(\.stableId)) { _, _ in
             selectedIndex = 0
         }
+    }
+
+    private var hasPendingApproval: Bool {
+        sortedInstances.contains { $0.phase.isWaitingForApproval }
     }
 
     private var clampedSelectedIndex: Int {

@@ -28,11 +28,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         super.init()
         AppDelegate.shared = self
 
-        do {
-            try updater.start()
-        } catch {
-            print("Failed to start Sparkle updater: \(error)")
-        }
+        // Sparkle auto-update disabled — custom fork, built from source
+        // do {
+        //     try updater.start()
+        // } catch {
+        //     print("Failed to start Sparkle updater: \(error)")
+        // }
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -77,14 +78,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self?.handleScreenChange()
         }
 
-        if updater.canCheckForUpdates {
-            updater.checkForUpdates()
-        }
-
-        updateCheckTimer = Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { [weak self] _ in
-            guard let updater = self?.updater, updater.canCheckForUpdates else { return }
-            updater.checkForUpdates()
-        }
+        // Auto-update checks disabled for custom fork
+        // if updater.canCheckForUpdates {
+        //     updater.checkForUpdates()
+        // }
+        //
+        // updateCheckTimer = Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { [weak self] _ in
+        //     guard let updater = self?.updater, updater.canCheckForUpdates else { return }
+        //     updater.checkForUpdates()
+        // }
     }
 
     private func handleScreenChange() {

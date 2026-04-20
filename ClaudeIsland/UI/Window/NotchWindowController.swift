@@ -13,6 +13,7 @@ class NotchWindowController: NSWindowController {
     let viewModel: NotchViewModel
     private let screen: NSScreen
     private var cancellables = Set<AnyCancellable>()
+    private var previousApp: NSRunningApplication?
 
     init(screen: NSScreen) {
         self.screen = screen
@@ -66,17 +67,28 @@ class NotchWindowController: NSWindowController {
         // - Opened: ignoresMouseEvents = false (buttons inside panel work)
         viewModel.$status
             .receive(on: DispatchQueue.main)
-            .sink { [weak notchWindow, weak viewModel] status in
+            .sink { [weak self, weak notchWindow] status in
                 switch status {
                 case .opened:
+                    // Snapshot the app the user was in so we can return focus on close
+                    let frontmost = NSWorkspace.shared.frontmostApplication
+                    if let frontmost, frontmost.bundleIdentifier != Bundle.main.bundleIdentifier {
+                        self?.previousApp = frontmost
+                    }
                     // Accept mouse events when opened so buttons work
                     notchWindow?.ignoresMouseEvents = false
                     // Activate app and focus window so keyboard shortcuts work
                     NSApp.activate()
                     notchWindow?.makeKey()
                     notchWindow?.makeFirstResponder(notchWindow?.contentViewController?.view)
-                case .closed, .popping:
-                    // Ignore mouse events when closed so clicks pass through
+                case .closed:
+                    notchWindow?.ignoresMouseEvents = true
+                    // Return focus to whatever the user was in before the notch opened
+                    if let previousApp = self?.previousApp {
+                        previousApp.activate()
+                        self?.previousApp = nil
+                    }
+                case .popping:
                     notchWindow?.ignoresMouseEvents = true
                 }
             }

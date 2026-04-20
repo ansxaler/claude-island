@@ -48,7 +48,7 @@ class EventMonitors {
         mouseDraggedMonitor?.start()
     }
 
-    /// Cmd+Return hotkey to toggle the notch (Carbon global + NSEvent local)
+    /// Cmd+Option+` hotkey to toggle the notch (Carbon global + NSEvent local)
     private func setupGlobalHotkey() {
         // Global: Carbon RegisterEventHotKey — works without accessibility permissions
         var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
@@ -57,15 +57,15 @@ class EventMonitors {
             return noErr
         }, 1, &eventType, nil, nil)
 
-        // Cmd+Return: keyCode 36 = Return, cmdKey modifier
+        // Cmd+Option+`: keyCode 50 = backtick, cmdKey + optionKey modifiers
         let hotkeyID = EventHotKeyID(signature: OSType(0x434C4944), id: 1)  // "CLID"
         var hotKeyRef: EventHotKeyRef?
-        RegisterEventHotKey(UInt32(kVK_Return), UInt32(cmdKey), hotkeyID, GetApplicationEventTarget(), 0, &hotKeyRef)
+        RegisterEventHotKey(UInt32(kVK_ANSI_Grave), UInt32(cmdKey | optionKey), hotkeyID, GetApplicationEventTarget(), 0, &hotKeyRef)
         self.hotkeyRef = hotKeyRef
 
         // Local: works when notch is focused
         localHotkeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            if event.modifierFlags.contains(.command) && event.keyCode == 36 {
+            if event.modifierFlags.contains([.command, .option]) && event.keyCode == 50 {
                 self?.globalHotkey.send()
                 return nil
             }

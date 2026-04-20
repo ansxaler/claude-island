@@ -66,7 +66,7 @@ struct NotchView: View {
     /// Extra width for expanding activities (like Dynamic Island)
     private var expansionWidth: CGFloat {
         // Permission indicator adds width on left side only
-        let permissionIndicatorWidth: CGFloat = hasPendingPermission ? 18 : 0
+        let permissionIndicatorWidth: CGFloat = hasPendingPermission ? 22 : 0
 
         // Expand for processing activity
         if activityCoordinator.expandingActivity.show {
@@ -261,7 +261,7 @@ struct NotchView: View {
                     }
                 }
                 .frame(width: viewModel.status == .opened ? nil : sideWidth + (hasPendingPermission ? 18 : 0))
-                .padding(.leading, viewModel.status == .opened ? 8 : 0)
+                .padding(.leading, viewModel.status == .opened ? 8 : 4)
             }
 
             // Center content

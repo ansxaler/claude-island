@@ -78,8 +78,8 @@ struct ClaudeInstancesView: View {
                         onFocus: { focusSession(session) },
                         onChat: { openChat(session) },
                         onArchive: { archiveSession(session) },
-                        onApprove: { approveSession(session) },
-                        onReject: { rejectSession(session) }
+                        onApprove: { approveAndMaybeClose(session) },
+                        onReject: { rejectAndMaybeClose(session) }
                     )
                     .id(session.stableId)
                 }
@@ -132,9 +132,17 @@ struct ClaudeInstancesView: View {
 
     private func approveAndMaybeClose(_ session: SessionState) {
         approveSession(session)
+        closeIfNoMoreApprovals(after: session)
+    }
 
+    private func rejectAndMaybeClose(_ session: SessionState) {
+        rejectSession(session)
+        closeIfNoMoreApprovals(after: session)
+    }
+
+    private func closeIfNoMoreApprovals(after session: SessionState) {
         // Decide synchronously so the notch closes (and focus returns) the
-        // instant Enter is pressed, instead of after an arbitrary delay.
+        // instant the approval is answered, instead of after an arbitrary delay.
         let othersPending = sessionMonitor.instances.contains {
             $0.stableId != session.stableId && $0.phase.isWaitingForApproval
         }
@@ -221,59 +229,72 @@ struct InstanceRow: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: 10) {
-            // State indicator on left
-            stateIndicator
-                .frame(width: 14)
+            // Double-click target: indicator + text only. A two-click gesture
+            // covering the buttons delays their single clicks by the system
+            // double-click interval while SwiftUI waits to disambiguate.
+            HStack(alignment: .center, spacing: 10) {
+                // State indicator on left
+                stateIndicator
+                    .frame(width: 14)
 
-            // Text content
-            VStack(alignment: .leading, spacing: 2) {
-                Text(session.displayTitle)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(.white)
-                    .lineLimit(1)
+                // Text content
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(session.displayTitle)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(.white)
+                        .lineLimit(1)
 
-                // Show tool call when waiting for approval, otherwise last activity
-                if isWaitingForApproval, let toolName = session.pendingToolName {
-                    // Show tool name in amber + input on same line
-                    HStack(spacing: 4) {
-                        Text(MCPToolFormatter.formatToolName(toolName))
-                            .font(.system(size: 11, weight: .medium, design: .monospaced))
-                            .foregroundColor(TerminalColors.amber.opacity(0.9))
-                        if isInteractiveTool {
-                            Text("Needs your input")
-                                .font(.system(size: 11))
-                                .foregroundColor(.white.opacity(0.5))
-                                .lineLimit(1)
-                        } else if let input = session.pendingToolInput {
-                            Text(input)
-                                .font(.system(size: 11))
-                                .foregroundColor(.white.opacity(0.5))
-                                .lineLimit(1)
-                        }
-                    }
-                } else if let role = session.lastMessageRole {
-                    switch role {
-                    case "tool":
-                        // Tool call - show tool name + input
+                    // Show tool call when waiting for approval, otherwise last activity
+                    if isWaitingForApproval, let toolName = session.pendingToolName {
+                        // Show tool name in amber + input on same line
                         HStack(spacing: 4) {
-                            if let toolName = session.lastToolName {
-                                Text(MCPToolFormatter.formatToolName(toolName))
-                                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            Text(MCPToolFormatter.formatToolName(toolName))
+                                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                .foregroundColor(TerminalColors.amber.opacity(0.9))
+                            if isInteractiveTool {
+                                Text("Needs your input")
+                                    .font(.system(size: 11))
                                     .foregroundColor(.white.opacity(0.5))
-                            }
-                            if let input = session.lastMessage {
+                                    .lineLimit(1)
+                            } else if let input = session.pendingToolInput {
                                 Text(input)
                                     .font(.system(size: 11))
-                                    .foregroundColor(.white.opacity(0.4))
+                                    .foregroundColor(.white.opacity(0.5))
                                     .lineLimit(1)
                             }
                         }
-                    case "user":
-                        // User message - prefix with "You:"
-                        HStack(spacing: 4) {
-                            Text("You:")
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundColor(.white.opacity(0.5))
+                    } else if let role = session.lastMessageRole {
+                        switch role {
+                        case "tool":
+                            // Tool call - show tool name + input
+                            HStack(spacing: 4) {
+                                if let toolName = session.lastToolName {
+                                    Text(MCPToolFormatter.formatToolName(toolName))
+                                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                        .foregroundColor(.white.opacity(0.5))
+                                }
+                                if let input = session.lastMessage {
+                                    Text(input)
+                                        .font(.system(size: 11))
+                                        .foregroundColor(.white.opacity(0.4))
+                                        .lineLimit(1)
+                                }
+                            }
+                        case "user":
+                            // User message - prefix with "You:"
+                            HStack(spacing: 4) {
+                                Text("You:")
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundColor(.white.opacity(0.5))
+                                if let msg = session.lastMessage {
+                                    Text(msg)
+                                        .font(.system(size: 11))
+                                        .foregroundColor(.white.opacity(0.4))
+                                        .lineLimit(1)
+                                }
+                            }
+                        default:
+                            // Assistant message - just show text
                             if let msg = session.lastMessage {
                                 Text(msg)
                                     .font(.system(size: 11))
@@ -281,24 +302,20 @@ struct InstanceRow: View {
                                     .lineLimit(1)
                             }
                         }
-                    default:
-                        // Assistant message - just show text
-                        if let msg = session.lastMessage {
-                            Text(msg)
-                                .font(.system(size: 11))
-                                .foregroundColor(.white.opacity(0.4))
-                                .lineLimit(1)
-                        }
+                    } else if let lastMsg = session.lastMessage {
+                        Text(lastMsg)
+                            .font(.system(size: 11))
+                            .foregroundColor(.white.opacity(0.4))
+                            .lineLimit(1)
                     }
-                } else if let lastMsg = session.lastMessage {
-                    Text(lastMsg)
-                        .font(.system(size: 11))
-                        .foregroundColor(.white.opacity(0.4))
-                        .lineLimit(1)
                 }
-            }
 
-            Spacer(minLength: 0)
+                Spacer(minLength: 0)
+            }
+            .contentShape(Rectangle())
+            .onTapGesture(count: 2) {
+                onChat()
+            }
 
             // Action icons or approval buttons
             if isWaitingForApproval && isInteractiveTool {
@@ -351,10 +368,6 @@ struct InstanceRow: View {
         .padding(.leading, 8)
         .padding(.trailing, 14)
         .padding(.vertical, 10)
-        .contentShape(Rectangle())
-        .onTapGesture(count: 2) {
-            onChat()
-        }
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: isWaitingForApproval)
         .background(
             RoundedRectangle(cornerRadius: 12)

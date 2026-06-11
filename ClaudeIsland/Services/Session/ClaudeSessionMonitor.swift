@@ -95,38 +95,44 @@ class ClaudeSessionMonitor: ObservableObject {
     // MARK: - Permission Handling
 
     func approvePermission(sessionId: String) {
-        Task {
-            guard let session = await SessionStore.shared.session(for: sessionId),
-                  let permission = session.activePermission else {
-                return
-            }
-
-            HookSocketServer.shared.respondToPermission(
-                toolUseId: permission.toolUseId,
-                decision: "allow"
-            )
-
-            await SessionStore.shared.process(
-                .permissionApproved(sessionId: sessionId, toolUseId: permission.toolUseId)
-            )
-        }
+        respondToPermission(sessionId: sessionId, decision: "allow", reason: nil)
     }
 
     func denyPermission(sessionId: String, reason: String?) {
+        respondToPermission(sessionId: sessionId, decision: "deny", reason: reason)
+    }
+
+    private func respondToPermission(sessionId: String, decision: String, reason: String?) {
+        // Answer the socket from the published snapshot so Claude unblocks
+        // immediately — hopping to the store actor first leaves the response
+        // queued behind whatever JSONL parsing the actor is doing.
+        if let permission = instances.first(where: { $0.sessionId == sessionId })?.activePermission {
+            sendResponse(sessionId: sessionId, toolUseId: permission.toolUseId, decision: decision, reason: reason)
+            return
+        }
+
+        // Snapshot can lag a permission that only just arrived — fall back to the store.
         Task {
             guard let session = await SessionStore.shared.session(for: sessionId),
                   let permission = session.activePermission else {
                 return
             }
+            sendResponse(sessionId: sessionId, toolUseId: permission.toolUseId, decision: decision, reason: reason)
+        }
+    }
 
-            HookSocketServer.shared.respondToPermission(
-                toolUseId: permission.toolUseId,
-                decision: "deny",
-                reason: reason
-            )
+    private func sendResponse(sessionId: String, toolUseId: String, decision: String, reason: String?) {
+        HookSocketServer.shared.respondToPermission(
+            toolUseId: toolUseId,
+            decision: decision,
+            reason: reason
+        )
 
+        Task {
             await SessionStore.shared.process(
-                .permissionDenied(sessionId: sessionId, toolUseId: permission.toolUseId, reason: reason)
+                decision == "allow"
+                    ? .permissionApproved(sessionId: sessionId, toolUseId: toolUseId)
+                    : .permissionDenied(sessionId: sessionId, toolUseId: toolUseId, reason: reason)
             )
         }
     }

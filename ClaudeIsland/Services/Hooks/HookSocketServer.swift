@@ -374,6 +374,7 @@ class HookSocketServer {
         var allData = Data()
         var buffer = [UInt8](repeating: 0, count: 131072)
         var pollFd = pollfd(fd: clientSocket, events: Int16(POLLIN), revents: 0)
+        var decodedEvent: HookEvent?
 
         let startTime = Date()
         while Date().timeIntervalSince(startTime) < 0.5 {
@@ -384,6 +385,12 @@ class HookSocketServer {
 
                 if bytesRead > 0 {
                     allData.append(contentsOf: buffer[0..<bytesRead])
+                    // Payload is a single JSON object — stop reading the moment
+                    // it parses instead of waiting for the next poll timeout.
+                    if let event = try? JSONDecoder().decode(HookEvent.self, from: allData) {
+                        decodedEvent = event
+                        break
+                    }
                 } else if bytesRead == 0 {
                     break
                 } else if errno != EAGAIN && errno != EWOULDBLOCK {
@@ -405,7 +412,7 @@ class HookSocketServer {
 
         let data = allData
 
-        guard let event = try? JSONDecoder().decode(HookEvent.self, from: data) else {
+        guard let event = decodedEvent ?? (try? JSONDecoder().decode(HookEvent.self, from: data)) else {
             logger.warning("Failed to parse event: \(String(data: data, encoding: .utf8) ?? "?", privacy: .public)")
             close(clientSocket)
             return

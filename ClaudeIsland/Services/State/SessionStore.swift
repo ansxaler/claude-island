@@ -27,6 +27,11 @@ actor SessionStore {
     /// Pending file syncs (debounced)
     private var pendingSyncs: [String: Task<Void, Never>] = [:]
 
+    /// Cached tmux membership per Claude PID. A running process can't move in
+    /// or out of tmux, so this never goes stale. Avoids spawning `ps -eo` on
+    /// every hook event, which serialised the actor and lagged approvals.
+    private var tmuxStatusCache: [Int: Bool] = [:]
+
     /// Sync debounce interval (100ms)
     private let syncDebounceNs: UInt64 = 100_000_000
 
@@ -127,8 +132,14 @@ actor SessionStore {
 
         session.pid = event.pid
         if let pid = event.pid {
-            let tree = ProcessTreeBuilder.shared.buildTree()
-            session.isInTmux = ProcessTreeBuilder.shared.isInTmux(pid: pid, tree: tree)
+            if let cached = tmuxStatusCache[pid] {
+                session.isInTmux = cached
+            } else {
+                let tree = ProcessTreeBuilder.shared.buildTree()
+                let inTmux = ProcessTreeBuilder.shared.isInTmux(pid: pid, tree: tree)
+                tmuxStatusCache[pid] = inTmux
+                session.isInTmux = inTmux
+            }
         }
         if let tty = event.tty {
             session.tty = tty.replacingOccurrences(of: "/dev/", with: "")
@@ -136,6 +147,9 @@ actor SessionStore {
         session.lastActivity = Date()
 
         if event.status == "ended" {
+            if let pid = session.pid {
+                tmuxStatusCache.removeValue(forKey: pid)
+            }
             sessions.removeValue(forKey: sessionId)
             cancelPendingSync(sessionId: sessionId)
             return
@@ -143,10 +157,27 @@ actor SessionStore {
 
         let newPhase = event.determinePhase()
 
-        if session.phase.canTransition(to: newPhase) {
+        var allowTransition = session.phase.canTransition(to: newPhase)
+
+        // While a permission prompt is pending, only a genuine resolution may
+        // demote the phase to processing: the prompted tool completing
+        // (approved in the terminal) or the user submitting a new prompt.
+        // Parallel tools and subagent traffic also arrive as "processing" and
+        // would otherwise hide the approval UI and collapse the notch while
+        // the request is still unanswered.
+        if case .waitingForApproval(let ctx) = session.phase,
+           case .processing = newPhase {
+            let promptedToolCompleted = event.event == "PostToolUse" && event.toolUseId == ctx.toolUseId
+            let userActed = event.event == "UserPromptSubmit"
+            if !promptedToolCompleted && !userActed {
+                allowTransition = false
+            }
+        }
+
+        if allowTransition {
             session.phase = newPhase
         } else {
-            Self.logger.debug("Invalid transition: \(String(describing: session.phase), privacy: .public) -> \(String(describing: newPhase), privacy: .public), ignoring")
+            Self.logger.debug("Blocked transition: \(String(describing: session.phase), privacy: .public) -> \(String(describing: newPhase), privacy: .public) on \(event.event, privacy: .public), ignoring")
         }
 
         if event.event == "PermissionRequest", let toolUseId = event.toolUseId {
@@ -842,6 +873,9 @@ actor SessionStore {
     // MARK: - Session End Processing
 
     private func processSessionEnd(sessionId: String) async {
+        if let pid = sessions[sessionId]?.pid {
+            tmuxStatusCache.removeValue(forKey: pid)
+        }
         sessions.removeValue(forKey: sessionId)
         cancelPendingSync(sessionId: sessionId)
     }

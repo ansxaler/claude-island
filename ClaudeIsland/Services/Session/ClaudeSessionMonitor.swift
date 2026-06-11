@@ -16,6 +16,8 @@ class ClaudeSessionMonitor: ObservableObject {
     @Published var pendingInstances: [SessionState] = []
 
     private var cancellables = Set<AnyCancellable>()
+    private var eventTask: Task<Void, Never>?
+    private var eventContinuation: AsyncStream<HookEvent>.Continuation?
 
     init() {
         SessionStore.shared.sessionsPublisher
@@ -31,11 +33,23 @@ class ClaudeSessionMonitor: ObservableObject {
     // MARK: - Monitoring Lifecycle
 
     func startMonitoring() {
+        // Hook events MUST be processed in arrival order. Spawning a detached
+        // Task per event gives no ordering guarantee, so a PreToolUse could be
+        // processed after the PermissionRequest it precedes and clobber the
+        // waitingForApproval phase (notch collapses with the approval unanswered).
+        // An AsyncStream consumed by a single task is strictly FIFO.
+        let (stream, continuation) = AsyncStream.makeStream(of: HookEvent.self)
+        eventContinuation = continuation
+        eventTask = Task {
+            for await event in stream {
+                await SessionStore.shared.process(.hookReceived(event))
+            }
+        }
+
         HookSocketServer.shared.start(
             onEvent: { event in
-                Task {
-                    await SessionStore.shared.process(.hookReceived(event))
-                }
+                // Called on the server's serial queue — yield preserves order
+                continuation.yield(event)
 
                 if event.sessionPhase == .processing {
                     Task { @MainActor in
@@ -72,6 +86,10 @@ class ClaudeSessionMonitor: ObservableObject {
 
     func stopMonitoring() {
         HookSocketServer.shared.stop()
+        eventContinuation?.finish()
+        eventContinuation = nil
+        eventTask?.cancel()
+        eventTask = nil
     }
 
     // MARK: - Permission Handling

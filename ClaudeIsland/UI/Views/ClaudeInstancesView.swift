@@ -133,13 +133,24 @@ struct ClaudeInstancesView: View {
     private func approveAndMaybeClose(_ session: SessionState) {
         approveSession(session)
 
-        // Check after a short delay if any approvals remain
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            let stillPending = sessionMonitor.instances.contains { $0.phase.isWaitingForApproval }
-            if !stillPending {
-                viewModel.notchClose()
-            } else {
-                // Move selection to next pending approval
+        // Decide synchronously so the notch closes (and focus returns) the
+        // instant Enter is pressed, instead of after an arbitrary delay.
+        let othersPending = sessionMonitor.instances.contains {
+            $0.stableId != session.stableId && $0.phase.isWaitingForApproval
+        }
+        // Same session can have further tools queued behind the approved one
+        let queuedInSameSession = session.chatItems.filter {
+            if case .toolCall(let tool) = $0.type {
+                return tool.status == .waitingForApproval
+            }
+            return false
+        }.count > 1
+
+        if !othersPending && !queuedInSameSession {
+            viewModel.notchClose()
+        } else {
+            // Move selection to the next pending approval once state settles
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
                 if let nextIndex = sortedInstances.firstIndex(where: { $0.phase.isWaitingForApproval }) {
                     selectedIndex = nextIndex
                 }

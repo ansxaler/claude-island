@@ -14,11 +14,26 @@ TIMEOUT_SECONDS = 300  # 5 minutes for permission decisions
 
 
 def get_tty():
-    """Get the TTY of the Claude process (parent)"""
+    """Get the TTY of the Claude process (parent).
+
+    The TTY of a running process never changes, so cache it per Claude PID
+    in /tmp — this avoids spawning `ps` on every hook event, which added
+    latency to every state update and permission popup.
+    """
     import subprocess
 
     # Get parent PID (Claude process)
     ppid = os.getppid()
+    cache_path = f"/tmp/claude-island-tty-{ppid}"
+
+    try:
+        with open(cache_path) as f:
+            cached = f.read().strip()
+            return cached or None  # empty file = known no-tty
+    except OSError:
+        pass
+
+    tty = None
 
     # Try to get TTY from ps command for the parent process
     try:
@@ -28,25 +43,29 @@ def get_tty():
             text=True,
             timeout=2
         )
-        tty = result.stdout.strip()
-        if tty and tty != "??" and tty != "-":
+        out = result.stdout.strip()
+        if out and out != "??" and out != "-":
             # ps returns just "ttys001", we need "/dev/ttys001"
-            if not tty.startswith("/dev/"):
-                tty = "/dev/" + tty
-            return tty
+            tty = out if out.startswith("/dev/") else "/dev/" + out
     except Exception:
         pass
 
     # Fallback: try current process stdin/stdout
+    if tty is None:
+        for stream in (sys.stdin, sys.stdout):
+            try:
+                tty = os.ttyname(stream.fileno())
+                break
+            except (OSError, AttributeError, ValueError):
+                pass
+
     try:
-        return os.ttyname(sys.stdin.fileno())
-    except (OSError, AttributeError):
+        with open(cache_path, "w") as f:
+            f.write(tty or "")
+    except OSError:
         pass
-    try:
-        return os.ttyname(sys.stdout.fileno())
-    except (OSError, AttributeError):
-        pass
-    return None
+
+    return tty
 
 
 def send_event(state):

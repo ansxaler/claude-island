@@ -39,6 +39,9 @@ Pods/
 # Release artifacts
 releases/
 
+# Local backup of the previously installed app
+app-backup/
+
 # Xcode backup
 *.xcodeproj.backup/
 CLAUDE.md

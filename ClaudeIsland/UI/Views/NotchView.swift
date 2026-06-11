@@ -446,11 +446,13 @@ struct NotchView: View {
             viewModel.notchOpen(reason: .notification)
         }
 
-        // Auto-close if notch was opened for notification and no approvals remain
+        // Auto-close once no approvals remain — however the notch was opened —
+        // so answering the last approval always hands focus back to work.
+        // Leave chat and menu views alone; closing mid-read would be jarring.
         if currentIds.isEmpty &&
            !previousPendingIds.isEmpty &&
            viewModel.status == .opened &&
-           viewModel.openReason == .notification {
+           viewModel.contentType == .instances {
             viewModel.notchClose()
         }
 

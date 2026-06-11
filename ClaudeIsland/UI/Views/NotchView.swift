@@ -20,6 +20,7 @@ struct NotchView: View {
     @StateObject private var sessionMonitor = ClaudeSessionMonitor()
     @StateObject private var activityCoordinator = NotchActivityCoordinator.shared
     @ObservedObject private var updateManager = UpdateManager.shared
+    @ObservedObject private var dnd = DoNotDisturbState.shared
     @State private var previousPendingIds: Set<String> = []
     @State private var previousWaitingForInputIds: Set<String> = []
     @State private var waitingForInputTimestamps: [String: Date] = [:]  // sessionId -> when it entered waitingForInput
@@ -316,6 +317,19 @@ struct NotchView: View {
 
             Spacer()
 
+            // Do Not Disturb toggle
+            Button {
+                dnd.toggle()
+            } label: {
+                Image(systemName: dnd.isOn ? "moon.fill" : "moon")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(dnd.isOn ? Color(red: 0.69, green: 0.61, blue: 0.94) : .white.opacity(0.4))
+                    .frame(width: 22, height: 22)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Do Not Disturb (⌘⌥⇧D)")
+
             // Menu toggle
             Button {
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
@@ -423,8 +437,11 @@ struct NotchView: View {
         let currentIds = Set(approvalSessions.map { $0.stableId })
         let newPendingIds = currentIds.subtracting(previousPendingIds)
 
+        // DND: never auto-open (and so never steal keyboard focus) —
+        // the amber indicator in the closed notch still shows.
         if !newPendingIds.isEmpty &&
            viewModel.status == .closed &&
+           !dnd.isOn &&
            !TerminalVisibilityDetector.isTerminalFrontmost() {
             viewModel.notchOpen(reason: .notification)
         }
@@ -464,7 +481,7 @@ struct NotchView: View {
             let newlyWaitingSessions = waitingForInputSessions.filter { newWaitingIds.contains($0.stableId) }
 
             // Play notification sound if the session is not actively focused
-            if let soundName = AppSettings.notificationSound.soundName {
+            if let soundName = AppSettings.notificationSound.soundName, !dnd.isOn {
                 // Check if we should play sound (async check for tmux pane focus)
                 Task {
                     let shouldPlaySound = await shouldPlayNotificationSound(for: newlyWaitingSessions)

@@ -5,6 +5,8 @@
 //  App settings manager using UserDefaults
 //
 
+import AppKit
+import Combine
 import Foundation
 
 /// Available notification sounds
@@ -38,6 +40,15 @@ enum AppSettings {
 
     private enum Keys {
         static let notificationSound = "notificationSound"
+        static let doNotDisturb = "doNotDisturb"
+    }
+
+    // MARK: - Do Not Disturb
+
+    /// When on, the notch never auto-opens or steals keyboard focus
+    static var doNotDisturb: Bool {
+        get { defaults.bool(forKey: Keys.doNotDisturb) }
+        set { defaults.set(newValue, forKey: Keys.doNotDisturb) }
     }
 
     // MARK: - Notification Sound
@@ -54,5 +65,30 @@ enum AppSettings {
         set {
             defaults.set(newValue.rawValue, forKey: Keys.notificationSound)
         }
+    }
+}
+
+// MARK: - Do Not Disturb State
+
+/// Observable Do Not Disturb state, persisted via AppSettings.
+/// When on: no auto-open on permission requests, no focus stealing, no sounds.
+/// The closed-notch indicators (amber dot, spinner, checkmark) still show.
+@MainActor
+final class DoNotDisturbState: ObservableObject {
+    static let shared = DoNotDisturbState()
+
+    @Published var isOn: Bool {
+        didSet { AppSettings.doNotDisturb = isOn }
+    }
+
+    private init() {
+        isOn = AppSettings.doNotDisturb
+    }
+
+    /// Toggle DND with a subtle audio cue so hotkey toggles are confirmable
+    /// without anything visual stealing attention.
+    func toggle() {
+        isOn.toggle()
+        NSSound(named: isOn ? "Tink" : "Pop")?.play()
     }
 }

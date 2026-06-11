@@ -18,6 +18,7 @@ struct NotchMenuView: View {
     @ObservedObject private var updateManager = UpdateManager.shared
     @ObservedObject private var screenSelector = ScreenSelector.shared
     @ObservedObject private var soundSelector = SoundSelector.shared
+    @ObservedObject private var dnd = DoNotDisturbState.shared
     @State private var hooksInstalled: Bool = false
     @State private var launchAtLogin: Bool = false
 
@@ -38,6 +39,14 @@ struct NotchMenuView: View {
             // Appearance settings
             ScreenPickerRow(screenSelector: screenSelector)
             SoundPickerRow(soundSelector: soundSelector)
+
+            MenuToggleRow(
+                icon: dnd.isOn ? "moon.fill" : "moon",
+                label: "Do Not Disturb (⌘⌥⇧D)",
+                isOn: dnd.isOn
+            ) {
+                dnd.toggle()
+            }
 
             Divider()
                 .background(Color.white.opacity(0.08))

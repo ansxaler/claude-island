@@ -75,7 +75,7 @@ class NotchViewModel: ObservableObject {
             // Compact size for settings menu
             return CGSize(
                 width: min(screenRect.width * 0.4, 480),
-                height: 420 + screenSelector.expandedPickerHeight + soundSelector.expandedPickerHeight
+                height: 460 + screenSelector.expandedPickerHeight + soundSelector.expandedPickerHeight
             )
         case .instances:
             let rowHeight: CGFloat = 54
@@ -147,6 +147,13 @@ class NotchViewModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 self?.handleMouseDown()
+            }
+            .store(in: &cancellables)
+
+        events.dndHotkey
+            .receive(on: DispatchQueue.main)
+            .sink {
+                DoNotDisturbState.shared.toggle()
             }
             .store(in: &cancellables)
     }

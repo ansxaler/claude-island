@@ -19,7 +19,15 @@ class NotchWindowController: NSWindowController {
         self.screen = screen
 
         let screenFrame = screen.frame
-        let notchSize = screen.notchSize
+        var notchSize = screen.notchSize
+
+        // Cap the closed notch height at the menu bar height so the black box
+        // never hangs below the macOS bar (matters on displays without a
+        // physical notch, where the fallback size is taller than the bar).
+        let menuBarHeight = screen.frame.maxY - screen.visibleFrame.maxY
+        if menuBarHeight > 1 {
+            notchSize.height = min(notchSize.height, menuBarHeight)
+        }
 
         // Window covers full width at top, tall enough for largest content (chat view)
         let windowHeight: CGFloat = 750
@@ -84,24 +92,28 @@ class NotchWindowController: NSWindowController {
                 case .closed:
                     notchWindow?.ignoresMouseEvents = true
                     // Yield key-window status so keystrokes stop routing to the panel.
-                    // Cooperative activate() on macOS 14+ hands visual focus back
-                    // but leaves the key window with us, forcing the user to Cmd+Tab.
                     notchWindow?.makeFirstResponder(nil)
                     notchWindow?.resignKey()
-                    // Activate the previously-frontmost app via LaunchServices.
-                    // openApplication(activates:true) uses the same path as a
-                    // Dock-icon click — forces a full key-window handoff, unlike
-                    // the cooperative NSRunningApplication.activate() which macOS
-                    // can silently downgrade on Tahoe.
-                    if let previousApp = self?.previousApp,
-                       let bundleURL = previousApp.bundleURL {
-                        let config = NSWorkspace.OpenConfiguration()
-                        config.activates = true
-                        NSWorkspace.shared.openApplication(
-                            at: bundleURL,
-                            configuration: config,
-                            completionHandler: nil
-                        )
+                    if let previousApp = self?.previousApp, !previousApp.isTerminated {
+                        // Cooperative handoff: while we are still the active app,
+                        // explicitly yield activation to the previous app. Without
+                        // the yield, macOS 14+/Tahoe silently downgrades the
+                        // activate() and keyboard focus stays with us.
+                        if #available(macOS 14.0, *) {
+                            NSApp.yieldActivation(to: previousApp)
+                        }
+                        let activated = previousApp.activate()
+                        if !activated, let bundleURL = previousApp.bundleURL {
+                            // Fallback: LaunchServices path (same as a Dock-icon
+                            // click) forces a full key-window handoff.
+                            let config = NSWorkspace.OpenConfiguration()
+                            config.activates = true
+                            NSWorkspace.shared.openApplication(
+                                at: bundleURL,
+                                configuration: config,
+                                completionHandler: nil
+                            )
+                        }
                     }
                     self?.previousApp = nil
                 case .popping:

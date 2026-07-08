@@ -64,6 +64,37 @@ class NotchPanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
 
+    // MARK: - Position lock
+
+    /// Once set, every frame change is coerced back to this rect.
+    /// Window managers (Raycast, Rectangle, macOS tiling shortcuts) move
+    /// the focused window via the Accessibility API — which bypasses
+    /// isMovable — and the island is focused whenever it's open. The
+    /// island's position is owned by the app: it only moves by being
+    /// recreated on a new screen (menu picker / display changes), which
+    /// sets a fresh lockedFrame.
+    var lockedFrame: NSRect?
+
+    override func setFrame(_ frameRect: NSRect, display flag: Bool) {
+        super.setFrame(lockedFrame ?? frameRect, display: flag)
+    }
+
+    override func setFrame(_ frameRect: NSRect, display displayFlag: Bool, animate animateFlag: Bool) {
+        super.setFrame(lockedFrame ?? frameRect, display: displayFlag, animate: animateFlag)
+    }
+
+    override func setFrameOrigin(_ point: NSPoint) {
+        super.setFrameOrigin(lockedFrame?.origin ?? point)
+    }
+
+    override func setFrameTopLeftPoint(_ point: NSPoint) {
+        if let lockedFrame {
+            super.setFrameOrigin(lockedFrame.origin)
+        } else {
+            super.setFrameTopLeftPoint(point)
+        }
+    }
+
     // MARK: - Click-through for areas outside the panel content
 
     override func sendEvent(_ event: NSEvent) {

@@ -69,6 +69,22 @@ class NotchWindowController: NSWindowController {
         notchWindow.contentViewController = hostingController
 
         notchWindow.setFrame(windowFrame, display: true)
+        notchWindow.lockedFrame = windowFrame
+
+        // Safety net for move paths the setFrame overrides don't see:
+        // snap back the moment anything shifts the window.
+        Publishers.Merge(
+            NotificationCenter.default.publisher(for: NSWindow.didMoveNotification, object: notchWindow),
+            NotificationCenter.default.publisher(for: NSWindow.didResizeNotification, object: notchWindow)
+        )
+        .receive(on: DispatchQueue.main)
+        .sink { [weak notchWindow] _ in
+            guard let notchWindow,
+                  let locked = notchWindow.lockedFrame,
+                  notchWindow.frame != locked else { return }
+            notchWindow.setFrame(locked, display: true)
+        }
+        .store(in: &cancellables)
 
         // Dynamically toggle mouse event handling based on notch state:
         // - Closed: ignoresMouseEvents = true (clicks pass through to menu bar/apps)

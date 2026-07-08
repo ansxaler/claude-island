@@ -7,9 +7,21 @@
 
 import ApplicationServices
 import Combine
+import os.log
 import SwiftUI
 import ServiceManagement
 import Sparkle
+
+private let logger = Logger(subsystem: "com.claudeisland", category: "Menu")
+
+/// Reports the menu content's rendered height up to NotchViewModel so the
+/// panel (and its hit-test rect) can size to fit — see openedSize.
+private struct MenuContentHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
 
 // MARK: - NotchMenuView
 
@@ -108,16 +120,35 @@ struct NotchMenuView: View {
                 .padding(.vertical, 4)
 
             MenuRow(
+                icon: "arrow.clockwise",
+                label: "Restart"
+            ) {
+                AppRelauncher.restart()
+            }
+
+            MenuRow(
                 icon: "xmark.circle",
                 label: "Quit",
                 isDestructive: true
             ) {
-                NSApplication.shared.terminate(nil)
+                AppRelauncher.quit()
             }
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 8)
+        .background(
+            GeometryReader { geo in
+                Color.clear.preference(key: MenuContentHeightKey.self, value: geo.size.height)
+            }
+        )
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .onPreferenceChange(MenuContentHeightKey.self) { height in
+            guard height > 0 else { return }
+            logger.debug("menu content measured: \(height, format: .fixed(precision: 1))")
+            DispatchQueue.main.async {
+                viewModel.menuContentHeight = height
+            }
+        }
         .onAppear {
             refreshStates()
         }

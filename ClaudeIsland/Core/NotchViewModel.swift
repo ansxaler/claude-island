@@ -46,6 +46,7 @@ class NotchViewModel: ObservableObject {
     @Published var contentType: NotchContentType = .instances
     @Published var isHovering: Bool = false
     @Published var sessionCount: Int = 0
+    @Published var menuContentHeight: CGFloat = 0
 
     // MARK: - Dependencies
 
@@ -72,10 +73,15 @@ class NotchViewModel: ObservableObject {
                 height: 580
             )
         case .menu:
-            // Compact size for settings menu
+            // Height follows the measured menu content (reported by
+            // NotchMenuView, includes any expanded pickers). A hardcoded
+            // height leaves overflowing rows visible but outside the
+            // hit-test rect — i.e. buttons that render yet ignore clicks.
+            let headerHeight = max(24, deviceNotchRect.height)
+            let contentHeight = menuContentHeight > 0 ? menuContentHeight : 500
             return CGSize(
                 width: min(screenRect.width * 0.4, 480),
-                height: 460 + screenSelector.expandedPickerHeight + soundSelector.expandedPickerHeight
+                height: min(headerHeight + contentHeight + spacing, windowHeight)
             )
         case .instances:
             let rowHeight: CGFloat = 54
